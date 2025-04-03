@@ -3,10 +3,14 @@ const User = require("../models/User");
 
 // Middleware to check authentication
 exports.authMiddleware = async (req, res, next) => {
-  const token = req.header("Authorization");
-  if (!token) {
-    return res.status(401).json({ message: "Access denied. No token provided." });
+  const authHeader = req.header("Authorization");
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ message: "Access denied. No token provided or invalid format." });
   }
+
+  // ✅ Extract only the token (remove "Bearer " part)
+  const token = authHeader.split(" ")[1];
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
