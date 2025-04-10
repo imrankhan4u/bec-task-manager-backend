@@ -120,7 +120,7 @@ router.post(
 // );
 
 
-
+// this one worked very well previously
 
 router.post("/login", async (req, res) => {
   console.log("Login route hit");
@@ -185,6 +185,59 @@ router.post("/login", async (req, res) => {
   }
 });
 
+
+// router.post('/login', async (req, res) => {
+//   try {
+//     console.log("Login route hit");
+//     console.log("Request Body:", req.body);
+
+//     const { email, password } = req.body;
+
+//     if (!email || !password) {
+//       console.log("Missing email or password");
+//       return res.status(400).json({ message: 'All fields are required' });
+//     }
+
+//     const user = await User.findOne({ email });
+//     if (!user) {
+//       console.log("User not found");
+//       return res.status(400).json({ message: 'Invalid credentials' });
+//     }
+
+//     console.log("User found:", user);
+//     console.log("Received password:", password);
+//     console.log("User password from DB:", user.password);
+
+//     const isMatch = await bcrypt.compare(password, user.password);
+//     console.log("Password match result:", isMatch);
+
+//     if (!isMatch) {
+//       console.log("Password mismatch");
+//       return res.status(400).json({ message: 'Invalid credentials' });
+//     }
+
+//     console.log("User authenticated successfully");
+
+//     const token = jwt.sign(
+//       { _id: user._id, role: user.role },
+//       process.env.JWT_SECRET,
+//       { expiresIn: '7d' }
+//     );
+
+//     res.status(200).json({
+//       token,
+//       user: {
+//         _id: user._id,
+//         name: user.name,
+//         email: user.email,
+//         role: user.role
+//       }
+//     });
+//   } catch (error) {
+//     console.error("Login error:", error);
+//     res.status(500).json({ message: 'Server error', error });
+//   }
+// });
 
 
 
@@ -269,6 +322,79 @@ router.get("/hods", authMiddleware, async (req, res) => {
     res.status(500).json({ message: "Error fetching HODs", error });
   }
 });
+
+// router.get("/users", authMiddleware, async (req, res) => {
+//   try {
+//     // Only Principal can fetch HODs
+//     if (req.user.role !== "Admin") {
+//       return res.status(403).json({ message: "Access denied. Only the Admin can view Users." });
+//     }
+
+//     // Find all users
+//     const users = await User.find({});
+
+//     res.status(200).json(users);
+//   } catch (error) {
+//     res.status(500).json({ message: "Error fetching users", error });
+//   }
+// });
+
+
+
+router.get('/all-users', authMiddleware, async (req, res) => {
+  try {
+    const requester = req.user;
+    let filter = {};
+
+    if (requester.role === 'Principal') {
+      filter = { role: { $regex: /^HOD-/ } };
+    } else if (requester.role.startsWith('HOD-')) {
+      const department = requester.role.split('-')[1];
+      filter = { role: `Faculty-${department}` };
+    }
+
+    const users = await User.find(filter, 'name email role department');
+    res.json(users);
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ message: 'Server error while fetching users' });
+  }
+});
+
+router.put('/change-password', authMiddleware, async (req, res) => {
+  try {
+    const { currentPassword, newPassword, confirmNewPassword } = req.body;
+
+    if (!currentPassword || !newPassword || !confirmNewPassword) {
+      return res.status(400).json({ message: 'All fields are required' });
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      return res.status(400).json({ message: 'New passwords do not match' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters' });
+    }
+
+    const user = await User.findById(req.user._id);
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Current password is incorrect' });
+    }
+
+    // Don't hash manually! Just assign plain text
+    user.password = newPassword;
+    await user.save(); // pre-save hook will hash
+
+    res.status(200).json({ message: 'Password changed successfully' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error });
+  }
+});
+
 
 
 module.exports = router;
