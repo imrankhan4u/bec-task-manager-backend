@@ -1,5 +1,7 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
+const Department = require("./Department");
+const crypto = require("crypto");
 
 const userSchema = new mongoose.Schema({
   name: {
@@ -21,20 +23,24 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: [true, "Role is required"],
     validate: {
-      validator: function (role) {
+      validator: async function (role) {
         const validRoles = ["Admin", "Principal"];
         const departmentRoles = ["HOD", "Faculty"];
-        const validDepartments = ["CSE", "ECE", "MECH", "EEE", "CIVIL", "CBDS", "AIML", "IT"]; // Add more as needed
 
         if (validRoles.includes(role)) return true;
 
-        return departmentRoles.some(r => 
+        const departments = await Department.find().select("name");
+        const validDepartments = departments.map(dep => dep.name);
+
+        return departmentRoles.some(r =>
           validDepartments.some(dept => role === `${r}-${dept}`)
         );
       },
       message: "Invalid role format. HOD and Faculty must include a department (e.g., HOD-CSE, Faculty-ECE)."
     }
-  }
+  },
+  resetPasswordToken: String,
+  resetPasswordExpires: Date
 });
 
 // Hash password before saving
@@ -44,6 +50,19 @@ userSchema.pre("save", async function (next) {
   this.password = await bcrypt.hash(this.password, salt);
   next();
 });
+
+
+
+
+userSchema.methods.generatePasswordReset = function () {
+  const resetToken = crypto.randomBytes(20).toString("hex");
+
+  this.resetPasswordToken = crypto.createHash("sha256").update(resetToken).digest("hex");
+  this.resetPasswordExpires = Date.now() + 60 * 1000; // ✅ 1 minute
+
+  return resetToken;
+};
+
 
 const User = mongoose.model("User", userSchema);
 module.exports = User;
