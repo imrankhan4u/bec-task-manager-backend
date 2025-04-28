@@ -449,25 +449,25 @@ router.get("/hods", authMiddleware, async (req, res) => {
 
 
 
-router.get('/all-users', authMiddleware, async (req, res) => {
-  try {
-    const requester = req.user;
-    let filter = {};
+  router.get('/all-users', authMiddleware, async (req, res) => {
+    try {
+      const requester = req.user;
+      let filter = {};
 
-    if (requester.role === 'Principal') {
-      filter = { role: { $regex: /^HOD-/ } };
-    } else if (requester.role.startsWith('HOD-')) {
-      const department = requester.role.split('-')[1];
-      filter = { role: `Faculty-${department}` };
+      if (requester.role === 'Principal') {
+        filter = { role: { $regex: /^HOD-/ } };
+      } else if (requester.role.startsWith('HOD-')) {
+        const department = requester.role.split('-')[1];
+        filter = { role: `Faculty-${department}` };
+      }
+
+      const users = await User.find(filter, 'name email role department');
+      res.json(users);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      res.status(500).json({ message: 'Server error while fetching users' });
     }
-
-    const users = await User.find(filter, 'name email role department');
-    res.json(users);
-  } catch (error) {
-    console.error('Error fetching users:', error);
-    res.status(500).json({ message: 'Server error while fetching users' });
-  }
-});
+  });
 
 router.put('/change-password', authMiddleware, async (req, res) => {
   try {
@@ -577,7 +577,6 @@ router.get(
     }
   }
 );
-
 // 📝 Update User (Admin only)
 router.patch(
   "/users/:id",
@@ -587,9 +586,8 @@ router.patch(
     body("name").optional().notEmpty().withMessage("Name must not be empty"),
     body("email").optional().isEmail().withMessage("Invalid email address"),
     body("role").optional().notEmpty().withMessage("Role must not be empty"),
-    // ❌ Removed password validation to comply with privacy policy
   ],
-
+  
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -597,12 +595,34 @@ router.patch(
     }
 
     const { id } = req.params;
-    const { name, email, role } = req.body; // ❌ password destructuring removed
+    const { name, email, role } = req.body; // No password update
 
     try {
       const user = await User.findById(id);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
+      }
+
+      // Check if role is being updated and apply validation
+      if (role) {
+        // Extract department from role (e.g., "HOD-CSE" -> "CSE")
+        const department = role.split('-')[1];
+
+        // If role is being changed to 'Principal', check for existing Principal in the same department
+        if (role.startsWith('Principal')) {
+          const existingPrincipal = await User.findOne({ role: 'Principal' });
+          if (existingPrincipal && existingPrincipal.id !== id) {
+            return res.status(400).json({ message: "Principal already exists in the application" });
+          }
+        }
+
+        // If role is being changed to 'HOD', check for existing HOD in the same department
+        if (role.startsWith('HOD')) {
+          const existingHod = await User.findOne({ role: { $regex: `^HOD-${department}` } });
+          if (existingHod && existingHod.id !== id) {
+            return res.status(400).json({ message: "An HOD already exists in this department" });
+          }
+        }
       }
 
       // ✅ Only update allowed fields
@@ -614,6 +634,31 @@ router.patch(
       res.status(200).json({ message: "User updated successfully", user });
     } catch (error) {
       console.error(error);
+      res.status(500).json({ message: "Server error", error });
+    }
+  }
+);
+
+
+// 🛠 Delete User (Admin only)
+router.delete(
+  "/users/:id",
+  authMiddleware,
+  authorizeRoles(["Admin"]), // Only Admin can delete
+  async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      const user = await User.findById(id);
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      await user.deleteOne();
+      res.status(200).json({ message: "User deleted successfully" });
+    } catch (error) {
+      console.error('Error deleting user:', error);
       res.status(500).json({ message: "Server error", error });
     }
   }
